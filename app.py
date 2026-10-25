@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, re, sys, time, random, requests, subprocess,ctypes
+import os, re, sys, time, random, requests, subprocess, ctypes
 from seleniumbase import SB
 
 # 环境变量配置(可以直接私库在双引号里填写)
@@ -10,11 +10,34 @@ PASSWORD      = os.environ.get("PASSWORD") or ""        # 主用密码登录方�
 TG_CHAT_ID    = os.environ.get("TG_CHAT_ID") or ""      # TG chat id,不填写不通知，需和bot token一起填写生效
 TG_BOT_TOKEN  = os.environ.get("TG_BOT_TOKEN") or ""    # TG bot token 
 
+# VIDU WhatsApp Bot Webhook 配置
+WEBHOOK_URL   = "http://fi14.bot-hosting.cloud:26094/api/renew-webhook"
+WEBHOOK_TOKEN = "bhk_4acb5596b6b05624082327aac70d8bef8ee4519f10f11ea8"
+
 BASE_URL = "https://bot-hosting.net"
 
 if not (EMAIL and PASSWORD):
     print("ℹ️ 未配置 EMAIL 和 PASSWORD,脚本终止。")
     sys.exit(1)
+
+# 发送实时 Webhook 到 VIDU WhatsApp Bot
+def notify_whatsapp_bot(expiry_date: str, status: str = "synced"):
+    if not expiry_date:
+        return
+    try:
+        payload = {
+            "token": WEBHOOK_TOKEN,
+            "expiry": expiry_date,
+            "status": status
+        }
+        print(f"📡 正在向 WhatsApp Bot 发送实时到期时间 ({expiry_date})...")
+        res = requests.post(WEBHOOK_URL, json=payload, timeout=10)
+        if res.status_code == 200:
+            print("✅ WhatsApp Bot 成功确认接收 webhook (200 OK)")
+        else:
+            print(f"⚠️ WhatsApp Bot Webhook 响应: {res.status_code} - {res.text}")
+    except Exception as e:
+        print(f"⚠️ 无法连接 WhatsApp Bot webhook: {e}")
 
 # 发送tg通知
 def send_telegram_message(message: str):
@@ -424,6 +447,8 @@ def main():
         current_expiry = get_expiry_from_dom(sb) or extract_expiry_date(page_source)
         if current_expiry:
             print(f"📅 当前到期日期: {current_expiry}")
+            # 🚀 立即通过 Webhook 同步真实到期日期到 WhatsApp Bot
+            notify_whatsapp_bot(current_expiry, status="synced")
         else:
             print("⚠️ 未能提取当前到期日期")
 
@@ -511,6 +536,13 @@ def main():
                 new_page_text = sb.get_page_source()
             new_expiry = get_expiry_from_dom(sb) or extract_expiry_date(new_page_text)
             new_match = re.search(r"(?:Renewal cooldown|Renew in)\s+(\d{1,2}:\d{2}:\d{2})", new_page_text)
+            
+            # 🚀 同步续期后的全新到期日期到 WhatsApp Bot
+            if new_expiry:
+                notify_whatsapp_bot(new_expiry, status="renewed")
+            elif current_expiry:
+                notify_whatsapp_bot(current_expiry, status="renewed")
+
             if new_match:
                 new_countdown = new_match.group(1)
                 print(f"✅ 续期成功！新的倒计时: {new_countdown}")
